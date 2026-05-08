@@ -24,7 +24,7 @@ $topFeatureDisplay = array_slice($featureRows, 0, 6);
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Orange Churn Dashboard - Top 6</title>
-  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="/assets/style.css?v=2">
 </head>
 <body>
   <div class="app-shell">
@@ -236,6 +236,6 @@ $topFeatureDisplay = array_slice($featureRows, 0, 6);
       sampleInput: <?= json_encode($sampleInput) ?>
     };
   </script>
-  <script src="assets/app.js"></script>
+  <script src="/assets/app.js?v=2"></script>
 </body>
 </html>
