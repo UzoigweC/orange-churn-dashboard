@@ -1,3 +1,0 @@
-model,validation_best_threshold,validation_best_f1,test_roc_auc,test_pr_auc,test_precision,test_recall,test_f1,test_brier,test_precision_at_10pct,test_lift_at_10pct
-XGBoost - full screened features,0.104959,0.251445,0.703413,0.177867,0.164403,0.417423,0.235897,0.064842,0.218667,2.976407
-XGBoost - Top 40 selected features,0.144419,0.241481,0.694054,0.169319,0.214586,0.277677,0.242089,0.065225,0.214667,2.92196
