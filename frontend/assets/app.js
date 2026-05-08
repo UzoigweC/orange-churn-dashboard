@@ -1,5 +1,5 @@
-const apiBase = window.APP_CONFIG.apiBaseUrl;
-const sampleInput = window.APP_CONFIG.sampleInput || {};
+const apiBase = window.APP_CONFIG?.apiBaseUrl || '';
+const sampleInput = window.APP_CONFIG?.sampleInput || {};
 
 const predictBtn = document.getElementById('predictBtn');
 const sampleBtn = document.getElementById('sampleBtn');
@@ -9,91 +9,256 @@ const batchBtn = document.getElementById('batchBtn');
 const batchFile = document.getElementById('batchFile');
 const batchStatus = document.getElementById('batchStatus');
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function formToObject(form) {
   const data = new FormData(form);
   const obj = {};
-  for (const [key, value] of data.entries()) obj[key] = value;
+
+  for (const [key, value] of data.entries()) {
+    obj[key] = value;
+  }
+
   return obj;
 }
 
 function setSampleValues() {
+  if (!predictForm) return;
+
   Object.entries(sampleInput).forEach(([key, value]) => {
     const field = predictForm.querySelector(`[name="${key}"]`);
-    if (field) field.value = value;
+    if (field) {
+      field.value = value;
+    }
   });
 }
 
 function riskClassName(label) {
   if (!label) return 'neutral';
-  const txt = label.toLowerCase();
+
+  const txt = String(label).toLowerCase();
+
   if (txt.includes('high')) return 'risk-high';
   if (txt.includes('medium')) return 'risk-medium';
-  return 'risk-low';
+  if (txt.includes('low')) return 'risk-low';
+
+  return 'neutral';
 }
 
-async function runPrediction() {
-  predictionResult.innerHTML = '<p>Running prediction...</p>';
-  const payload = formToObject(predictForm);
-
-  const response = await fetch(`${apiBase}/predict`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-
-  if (!response.ok) {
-    predictionResult.innerHTML = '<p>Prediction failed. Please check that the API is deployed and that frontend/config.php points to the correct API URL.</p>';
-    return;
+function setPredictLoadingState(isLoading) {
+  if (predictBtn) {
+    predictBtn.disabled = isLoading;
+    predictBtn.textContent = isLoading ? 'Predicting...' : 'Predict risk';
   }
 
-  const result = await response.json();
-  const contributors = (result.top_contributors || []).map(item =>
-    `<li><strong>${item.feature}</strong> (${item.selected_value}): ${Number(item.contribution).toFixed(4)}</li>`
-  ).join('');
+  if (sampleBtn) {
+    sampleBtn.disabled = isLoading;
+  }
+}
+
+function setBatchLoadingState(isLoading) {
+  if (batchBtn) {
+    batchBtn.disabled = isLoading;
+    batchBtn.textContent = isLoading ? 'Running...' : 'Run batch prediction';
+  }
+
+  if (batchFile) {
+    batchFile.disabled = isLoading;
+  }
+}
+
+function renderPredictionResult(result) {
+  const probability = Number(result?.probability ?? 0);
+  const threshold = Number(result?.threshold_used ?? 0);
+  const predictedClass = result?.predicted_class ?? 0;
+  const band = result?.recommended_risk_band || 'No band returned';
+  const contributors = Array.isArray(result?.top_contributors)
+    ? result.top_contributors
+    : [];
+
+  const contributorHtml = contributors.length
+    ? contributors
+        .map((item) => {
+          const feature = escapeHtml(item.feature);
+          const selectedValue = escapeHtml(item.selected_value);
+          const contribution = Number(item.contribution ?? 0).toFixed(4);
+
+          return `<li><strong>${feature}</strong> (${selectedValue}): ${contribution}</li>`;
+        })
+        .join('')
+    : '<li>No contributor details returned.</li>';
 
   predictionResult.innerHTML = `
-    <div class="result-number">${Number(result.probability).toFixed(2)}</div>
-    <div class="result-band ${riskClassName(result.recommended_risk_band)}">${result.recommended_risk_band}</div>
-    <p><strong>Predicted class:</strong> ${result.predicted_class}</p>
-    <p><strong>Threshold used:</strong> ${Number(result.threshold_used).toFixed(3)}</p>
+    <div class="result-number">${probability.toFixed(2)}</div>
+    <div class="result-band ${riskClassName(band)}">${escapeHtml(band)}</div>
+    <p><strong>Predicted class:</strong> ${escapeHtml(predictedClass)}</p>
+    <p><strong>Threshold used:</strong> ${threshold.toFixed(3)}</p>
     <h4>Top contributors</h4>
-    <ul>${contributors}</ul>
+    <ul>${contributorHtml}</ul>
     <p class="note">This score is produced from the six highest-importance anonymised features only and is intended as a dashboard-friendly manual scoring view.</p>
   `;
 }
 
+function renderPredictionError(message) {
+  predictionResult.innerHTML = `
+    <div class="result-number">Error</div>
+    <div class="result-band neutral">Request failed</div>
+    <p>${escapeHtml(message)}</p>
+    <p>Check that the API service is online, that <code>frontend/config.php</code> contains the correct Railway API URL, and that the API domain opens successfully.</p>
+  `;
+}
+
+async function runPrediction() {
+  if (!predictionResult || !predictForm) return;
+
+  predictionResult.innerHTML = `
+    <div class="result-number">...</div>
+    <div class="result-band neutral">Running prediction</div>
+    <p>Please wait while the dashboard sends the selected values to the prediction API.</p>
+  `;
+
+  if (!apiBase) {
+    renderPredictionError('API base URL is missing.');
+    return;
+  }
+
+  const payload = formToObject(predictForm);
+  setPredictLoadingState(true);
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+
+    const response = await fetch(`${apiBase}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      let errorText = `Prediction failed with status ${response.status}.`;
+
+      try {
+        const errorJson = await response.json();
+        if (errorJson?.error) {
+          errorText = errorJson.error;
+        }
+      } catch (_) {
+        // Ignore JSON parse errors and keep the default message.
+      }
+
+      renderPredictionError(errorText);
+      return;
+    }
+
+    const result = await response.json();
+    renderPredictionResult(result);
+  } catch (error) {
+    console.error('Prediction request failed:', error);
+
+    if (error.name === 'AbortError') {
+      renderPredictionError('The request timed out while waiting for the API response.');
+    } else {
+      renderPredictionError('The dashboard could not reach the prediction API.');
+    }
+  } finally {
+    setPredictLoadingState(false);
+  }
+}
+
 async function runBatchPrediction() {
+  if (!batchStatus || !batchFile) return;
+
+  if (!apiBase) {
+    batchStatus.textContent = 'API base URL is missing.';
+    return;
+  }
+
   if (!batchFile.files.length) {
     batchStatus.textContent = 'Please choose a CSV file first.';
     return;
   }
 
   batchStatus.textContent = 'Running batch prediction...';
-  const formData = new FormData();
-  formData.append('file', batchFile.files[0]);
+  setBatchLoadingState(true);
 
-  const response = await fetch(`${apiBase}/predict-batch`, {
-    method: 'POST',
-    body: formData
-  });
+  try {
+    const formData = new FormData();
+    formData.append('file', batchFile.files[0]);
 
-  if (!response.ok) {
-    batchStatus.textContent = 'Batch prediction failed. Please confirm the CSV matches the template and that the API is reachable.';
-    return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+
+    const response = await fetch(`${apiBase}/predict-batch`, {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      let errorText = `Batch prediction failed with status ${response.status}.`;
+
+      try {
+        const errorJson = await response.json();
+        if (errorJson?.error) {
+          errorText = errorJson.error;
+        }
+      } catch (_) {
+        // Ignore JSON parse errors and keep the default message.
+      }
+
+      batchStatus.textContent = errorText;
+      return;
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = 'orange_top6_dashboard_predictions.csv';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+
+    window.URL.revokeObjectURL(url);
+    batchStatus.textContent = 'Batch prediction completed. Your scored CSV has been downloaded.';
+  } catch (error) {
+    console.error('Batch prediction failed:', error);
+
+    if (error.name === 'AbortError') {
+      batchStatus.textContent = 'The batch request timed out while waiting for the API response.';
+    } else {
+      batchStatus.textContent = 'The dashboard could not reach the prediction API.';
+    }
+  } finally {
+    setBatchLoadingState(false);
   }
-
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'orange_top6_dashboard_predictions.csv';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
-  batchStatus.textContent = 'Batch prediction completed. Your scored CSV has been downloaded.';
 }
 
-sampleBtn?.addEventListener('click', (e) => { e.preventDefault(); setSampleValues(); });
-predictBtn?.addEventListener('click', (e) => { e.preventDefault(); runPrediction(); });
-batchBtn?.addEventListener('click', (e) => { e.preventDefault(); runBatchPrediction(); });
+sampleBtn?.addEventListener('click', (e) => {
+  e.preventDefault();
+  setSampleValues();
+});
+
+predictBtn?.addEventListener('click', (e) => {
+  e.preventDefault();
+  runPrediction();
+});
+
+batchBtn?.addEventListener('click', (e) => {
+  e.preventDefault();
+  runBatchPrediction();
+});
