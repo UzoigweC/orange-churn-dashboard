@@ -1,0 +1,4 @@
+strategy,validation_best_threshold,validation_best_f1,test_roc_auc,test_pr_auc,test_precision,test_recall,test_f1,test_brier
+Class weight balanced,0.432606,0.149959,0.585872,0.092998,0.094415,0.515426,0.159595,0.1856
+SMOTENC,0.35888,0.151429,0.586707,0.092124,0.086881,0.729583,0.155272,0.176347
+No rebalancing,0.061348,0.150181,0.57893,0.087869,0.088614,0.649728,0.155957,0.068301
