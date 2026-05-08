@@ -1,2 +1,3 @@
 <?php
-define('API_BASE_URL', 'http://127.0.0.1:5001');
+// Update this if your Python API runs on a different host or port.
+define('API_BASE_URL', 'https://orange-churn-dashboard-production.up.railway.app');
