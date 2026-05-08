@@ -236,6 +236,6 @@ $topFeatureDisplay = array_slice($featureRows, 0, 6);
       sampleInput: <?= json_encode($sampleInput) ?>
     };
   </script>
-  <script src="/assets/app.js?v=2"></script>
+  <script src="/assets/app.js?v=4"></script>
 </body>
 </html>
